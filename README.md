@@ -1,6 +1,6 @@
 原项目目前既[不允许在其他地方讨论](https://github.com/NapNeko/NapCatQQ/blob/656bde25c8964085af07f28842ed2565b4d3764d/README.md?plain=1#L63)，
-也[不允许在项目群讨论](https://github.com/NapNeko/NapCatQQ/issues/1316)，
-且投诉自2025年9月28日至今没有回复，视为已变质。
+也[不允许在项目群讨论](https://github.com/NapNeko/NapCatQQ/issues/1316)（尚未完全封死），
+且投诉自2025年9月28日至今没有回复，视为已开始变质。
 
 （以后想到再加）
 
